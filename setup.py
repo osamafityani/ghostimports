@@ -72,4 +72,9 @@ setup(
         'install': PostInstallCommand,
         'develop': PostDevelopCommand,
     },
+    entry_points={
+        'console_scripts': [
+            'ghostmodule=ghostmodule.cli:main',
+        ],
+    },
 )
