@@ -1,16 +1,13 @@
 DATA_SCIENCE = {
     'pd': 'pandas',
     'np': 'numpy',
-    'numpy': 'numpy',
     'sp': 'scipy',
-    'scipy': 'scipy',
 }
 
 
 VISUALIZATION = {
     'plt': 'matplotlib.pyplot',
     'sns': 'seaborn',
-    'seaborn': 'seaborn',
     'px': 'plotly.express',
     'go': 'plotly.graph_objects',
     'plotly': 'plotly',
@@ -19,12 +16,9 @@ VISUALIZATION = {
 
 MACHINE_LEARNING = {
     'tf': 'tensorflow',
-    'tensorflow': 'tensorflow',
-    'torch': 'torch',
     'pytorch': 'torch',
     'keras': 'keras',
     'sk': 'sklearn',
-    'sklearn': 'sklearn',
 }
 
 
@@ -82,7 +76,6 @@ DATABASE = {
 
 
 TIME = {
-    'datetime': 'datetime',
     'dt': 'datetime',
     'time': 'time',
     'arrow': 'arrow',

@@ -1,5 +1,3 @@
-"""Command-line interface for GhostModule management."""
-
 import argparse
 import sys
 from .registry import get_registry

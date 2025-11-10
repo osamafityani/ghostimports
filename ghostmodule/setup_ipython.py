@@ -1,5 +1,3 @@
-"""Manual setup script for IPython startup configuration."""
-
 import os
 import sys
 

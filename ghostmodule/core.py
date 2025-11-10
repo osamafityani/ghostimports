@@ -1,5 +1,3 @@
-"""Core GhostModule functionality with registry support."""
-
 import sys
 import importlib
 import importlib.util

@@ -32,7 +32,7 @@ except ImportError:
         print("All Jupyter notebooks in this environment will now use ghostloader!\n")
         
     except Exception as e:
-        print(f"\n⚠️  Could not setup IPython startup script: {e}")
+        print(f"\nCould not setup IPython startup script: {e}")
         print("You can manually run: python -m ghostmodule.setup_ipython\n")
 
 class PostInstallCommand(install):
