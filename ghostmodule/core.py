@@ -3,7 +3,7 @@
 import sys
 import importlib
 import importlib.util
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from .registry import get_registry
 
@@ -28,13 +28,9 @@ class GhostModule:
                     ipython = get_ipython()
                     if ipython is not None:
                         registry = get_registry()
-                        
-                        # Replace both the alias and full module name with real module
-                        # Find all aliases that point to this module
                         all_modules = {**registry.builtin_modules, **registry.user_modules}
                         for alias, module_path in all_modules.items():
                             if module_path == self._module_name:
-                                # Only replace if it's still a GhostModule (not already replaced)
                                 if alias in ipython.user_ns and isinstance(ipython.user_ns[alias], GhostModule):
                                     ipython.user_ns[alias] = self._module
                 except:
@@ -42,67 +38,65 @@ class GhostModule:
                     
             except ImportError as e:
                 print(f"ghostloader: could not import '{self._module_name}' - {e}")
-                print(f"Try: pip install {self._module_name.split('.')[0]}")
+                print(f"   Try: pip install {self._module_name.split('.')[0]}")
                 raise
         return self._module
     
     def __getattr__(self, name):
-        """Proxy attribute access to the real module."""
         return getattr(self._load(), name)
     
     def __dir__(self):
-        """Proxy dir() to the real module."""
         return dir(self._load())
     
     def __repr__(self):
-        """Show that this is a GhostModule proxy."""
         if self._module is None:
             return f"<GhostModule '{self._module_name}' (not loaded)>"
         return repr(self._module)
     
     def __call__(self, *args, **kwargs):
-        """Support calling the module directly if it's callable."""
         return self._load()(*args, **kwargs)
 
 
 class UserDefinedGhost:
     """A ghost loader for user-defined imports from local files."""
     
-    def __init__(self, alias: str, file_path: str, imports: list):
+    def __init__(self, alias: str, file_path: str, imports: List[str], inject_directly: bool = False):
         self._alias = alias
         self._file_path = file_path
         self._imports = imports
-        self._loaded = {}
+        self._inject_directly = inject_directly
+        self._module = None
+        self._loaded_items = {}
     
     def _load(self):
         """Load the user's file and import specified names."""
-        if not self._loaded:
+        if self._module is None:
             try:
-                # Load the module from file path
                 spec = importlib.util.spec_from_file_location(self._alias, self._file_path)
                 if spec is None or spec.loader is None:
                     raise ImportError(f"Could not load {self._file_path}")
                 
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
+                self._module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(self._module)
                 
-                # Extract requested imports
                 for name in self._imports:
-                    if hasattr(module, name):
-                        self._loaded[name] = getattr(module, name)
+                    if hasattr(self._module, name):
+                        self._loaded_items[name] = getattr(self._module, name)
                     else:
-                        print(f"'{name}' not found in {self._file_path}")
+                        print(f"  '{name}' not found in {self._file_path}")
                 
-                print(f"ghostloader: imported {', '.join(self._loaded.keys())} from '{self._alias}'")
+                print(f"ghostloader: imported {', '.join(self._loaded_items.keys())} from '{self._alias}'")
                 
-                # Replace in namespace
                 try:
                     from IPython import get_ipython
                     ipython = get_ipython()
                     if ipython is not None:
-                        # Create a simple namespace object
-                        ns = type('UserModule', (), self._loaded)()
-                        ipython.user_ns[self._alias] = ns
+                        if self._inject_directly:
+                            for name, obj in self._loaded_items.items():
+                                ipython.user_ns[name] = obj
+                        else:
+                            for name, obj in self._loaded_items.items():
+                                setattr(self, name, obj)
                 except:
                     pass
                     
@@ -110,23 +104,25 @@ class UserDefinedGhost:
                 print(f"ghostloader: could not load user-defined module '{self._alias}' - {e}")
                 raise
         
-        return self._loaded
+        return self._loaded_items
     
     def __getattr__(self, name):
-        """Access imported names."""
+        if name.startswith('_'):
+            raise AttributeError(f"'{self._alias}' has no attribute '{name}'")
+        
         loaded = self._load()
         if name in loaded:
             return loaded[name]
         raise AttributeError(f"'{self._alias}' has no attribute '{name}'")
     
     def __dir__(self):
-        """List available imports."""
-        return list(self._load().keys())
+        self._load()
+        return list(self._loaded_items.keys())
     
     def __repr__(self):
-        if not self._loaded:
+        if self._module is None:
             return f"<UserDefinedGhost '{self._alias}' (not loaded)>"
-        return f"<UserDefinedGhost '{self._alias}' with {list(self._loaded.keys())}>"
+        return f"<UserDefinedGhost '{self._alias}' with {list(self._loaded_items.keys())}>"
 
 
 def activate(custom_aliases: Optional[Dict[str, str]] = None, 
@@ -136,7 +132,6 @@ def activate(custom_aliases: Optional[Dict[str, str]] = None,
     
     Args:
         custom_aliases: Optional dict of additional aliases to add.
-                       Format: {"alias": "module.path"}
         load_user_defined: Whether to load user-defined imports
     """
     try:
@@ -155,47 +150,52 @@ def activate(custom_aliases: Optional[Dict[str, str]] = None,
         
         all_modules = {**registry.builtin_modules, **registry.user_modules}
         
-        # Build a reverse mapping: module_path -> list of aliases
         module_to_aliases = {}
         for alias, module_path in all_modules.items():
             if module_path not in module_to_aliases:
                 module_to_aliases[module_path] = []
             module_to_aliases[module_path].append(alias)
         
-        # Inject GhostModule proxies for all aliases AND full module names
         loaded = []
-        shared_ghosts = {}  # Cache GhostModule instances per module_path
+        shared_ghosts = {}
         
         for module_path, aliases in module_to_aliases.items():
-            # Create one shared GhostModule for this module_path
-            # Use the first (shortest) alias as the display name
             primary_alias = min(aliases, key=len)
             ghost = GhostModule(module_path, primary_alias, module_path)
             shared_ghosts[module_path] = ghost
             
-            # Inject the same ghost instance for ALL aliases pointing to this module
             for alias in aliases:
                 if alias not in namespace:
                     namespace[alias] = ghost
                     loaded.append(alias)
             
-            # Also inject using the full module path as a name (if not already an alias)
-            # Extract the base module name (e.g., 'pandas' from 'pandas' or last part of 'matplotlib.pyplot')
             base_module = module_path.split('.')[-1]
             if base_module not in all_modules and base_module not in namespace:
                 namespace[base_module] = ghost
                 loaded.append(base_module)
         
-        # Load user-defined imports
         if load_user_defined:
             for alias, config in registry.user_defined.items():
-                if alias not in namespace:
-                    namespace[alias] = UserDefinedGhost(
+                inject_directly = config.get('inject_directly', False)
+                
+                if inject_directly:
+                    ghost = UserDefinedGhost(
                         alias, 
                         config['file_path'], 
-                        config['imports']
+                        config['imports'],
+                        inject_directly=True
                     )
-                    loaded.append(f"{alias} (user-defined)")
+                    ghost._load()
+                    loaded.extend([f"{name} (user-defined)" for name in config['imports']])
+                else:
+                    if alias not in namespace:
+                        namespace[alias] = UserDefinedGhost(
+                            alias, 
+                            config['file_path'], 
+                            config['imports'],
+                            inject_directly=False
+                        )
+                        loaded.append(f"{alias} (user-defined)")
         
         if loaded:
             print(f"ghostloader: activated for {len(loaded)} modules")
@@ -205,13 +205,6 @@ def activate(custom_aliases: Optional[Dict[str, str]] = None,
 
 
 def add_module(alias: str, module_path: str):
-    """
-    Add a new module to the registry (session-only by default).
-    
-    Usage:
-        from ghostmodule import add_module
-        add_module('alt', 'altair')  # Now 'alt' will work for altair
-    """
     registry = get_registry()
     registry.register_user_module(alias, module_path, persist=False)
     
@@ -222,71 +215,50 @@ def add_module(alias: str, module_path: str):
             ghost = GhostModule(module_path, alias, alias)
             ipython.user_ns[alias] = ghost
             
-            # Also add the full module name if different
             base_module = module_path.split('.')[-1]
             if base_module != alias and base_module not in ipython.user_ns:
                 ipython.user_ns[base_module] = ghost
             
-            print(f"✅ Added '{alias}' → '{module_path}' to current session")
+            print(f"Added '{alias}' -> '{module_path}' to current session")
     except:
         pass
 
 
 def save_module(alias: str, module_path: str):
-    """
-    Save a module to permanent user registry.
-    
-    Usage:
-        from ghostmodule import save_module
-        save_module('alt', 'altair')  # Persists across sessions
-    """
     registry = get_registry()
     registry.register_user_module(alias, module_path, persist=True)
-    
-    # Also add to current session
     add_module(alias, module_path)
-    print(f"💾 Saved '{alias}' → '{module_path}' permanently")
+    print(f"Saved '{alias}' -> '{module_path}' permanently")
 
 
-def add_user_defined(alias: str, file_path: str, imports: list):
-    """
-    Add user-defined imports from a local file (session-only).
-    
-    Usage:
-        from ghostmodule import add_user_defined
-        add_user_defined('utils', '/path/to/utils.py', ['helper', 'MyClass'])
-        # Now you can use: utils.helper() or utils.MyClass()
-    """
+def add_user_defined(alias: str, file_path: str, imports: List[str], inject_directly: bool = False):
     registry = get_registry()
-    registry.register_user_defined(alias, file_path, imports, persist=False)
+    registry.register_user_defined(alias, file_path, imports, persist=False, inject_directly=inject_directly)
     
     try:
         from IPython import get_ipython
         ipython = get_ipython()
         if ipython is not None:
-            ipython.user_ns[alias] = UserDefinedGhost(alias, file_path, imports)
-            print(f"✅ Added user-defined '{alias}' from {file_path}")
+            ghost = UserDefinedGhost(alias, file_path, imports, inject_directly=inject_directly)
+            
+            if inject_directly:
+                ghost._load()
+                print(f"Added user-defined functions directly: {', '.join(imports)}")
+            else:
+                ipython.user_ns[alias] = ghost
+                print(f"Added user-defined '{alias}' from {file_path}")
     except:
         pass
 
 
-def save_user_defined(alias: str, file_path: str, imports: list):
-    """
-    Save user-defined imports permanently.
-    
-    Usage:
-        from ghostmodule import save_user_defined
-        save_user_defined('utils', '~/my_utils.py', ['helper'])
-    """
+def save_user_defined(alias: str, file_path: str, imports: List[str], inject_directly: bool = False):
     registry = get_registry()
-    registry.register_user_defined(alias, file_path, imports, persist=True)
-    
-    add_user_defined(alias, file_path, imports)
+    registry.register_user_defined(alias, file_path, imports, persist=True, inject_directly=inject_directly)
+    add_user_defined(alias, file_path, imports, inject_directly=inject_directly)
     print(f"Saved user-defined '{alias}' permanently")
 
 
 def list_modules():
-    """List all available ghost modules."""
     registry = get_registry()
     available = registry.list_available()
     
@@ -294,16 +266,19 @@ def list_modules():
     
     if available['builtin']:
         print(f"Built-in ({len(available['builtin'])} modules):")
-        print(f"{', '.join(available['builtin'][:20])}")
+        print(f"  {', '.join(available['builtin'][:20])}")
         if len(available['builtin']) > 20:
             print(f"  ... and {len(available['builtin']) - 20} more")
     
     if available['user_added']:
         print(f"\nUser-added ({len(available['user_added'])} modules):")
-        print(f"{', '.join(available['user_added'])}")
+        print(f"  {', '.join(available['user_added'])}")
     
     if available['user_defined']:
         print(f"\nUser-defined ({len(available['user_defined'])} namespaces):")
-        print(f"{', '.join(available['user_defined'])}")
+        for alias in available['user_defined']:
+            config = registry.user_defined[alias]
+            mode = "direct" if config.get('inject_directly', False) else f"via {alias}"
+            print(f"  {alias}: {', '.join(config['imports'])} [{mode}]")
     
     print("\nTip: Use 'ghostmodule list --detailed' for full list")
