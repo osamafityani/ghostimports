@@ -1,5 +1,9 @@
+"""Command-line interface for GhostModule management."""
+
 import argparse
 import sys
+import importlib.util
+from pathlib import Path
 from .registry import get_registry
 from .builtin_modules import CATEGORIES
 
@@ -53,9 +57,38 @@ def remove_module_cmd(alias):
     else:
         print(f"'{alias}' not found in user modules")
 
+def get_all_functions_from_file(file_path):
+    """Extract all public functions/classes from a Python file."""
+    try:
+        spec = importlib.util.spec_from_file_location("temp_module", file_path)
+        if spec is None or spec.loader is None:
+            print(f"Could not load {file_path}")
+            return []
+        
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        public_names = [name for name in dir(module) 
+                       if not name.startswith('_') 
+                       and callable(getattr(module, name))]
+        
+        return public_names
+    except Exception as e:
+        print(f"Error reading file: {e}")
+        return []
+
 def add_user_defined_cmd(alias, file_path, imports, permanent=False, direct=False):
     registry = get_registry()
-    imports_list = [i.strip() for i in imports.split(',')]
+    
+    if imports == '*':
+        imports_list = get_all_functions_from_file(file_path)
+        if not imports_list:
+            print(f"No public functions found in {file_path}")
+            return
+        print(f"Found: {', '.join(imports_list)}")
+    else:
+        imports_list = [i.strip() for i in imports.split(',')]
+    
     registry.register_user_defined(alias, file_path, imports_list, persist=permanent, inject_directly=direct)
     
     mode = "directly" if direct else f"via '{alias}'"
@@ -96,7 +129,7 @@ def main():
     add_user_parser = subparsers.add_parser('add-user', help='Add user-defined imports')
     add_user_parser.add_argument('alias', help='Namespace alias (or "direct" for no alias)')
     add_user_parser.add_argument('file', help='Path to Python file')
-    add_user_parser.add_argument('imports', help='Comma-separated list of names to import')
+    add_user_parser.add_argument('imports', help='Comma-separated list of names or "*" for all public functions')
     add_user_parser.add_argument('--permanent', '-p', action='store_true',
                                 help='Save permanently')
     add_user_parser.add_argument('--direct', '-d', action='store_true',

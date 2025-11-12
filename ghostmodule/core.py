@@ -230,6 +230,26 @@ def save_module(alias: str, module_path: str):
 
 
 def add_user_defined(alias: str, file_path: str, imports: List[str], inject_directly: bool = False):
+    import importlib.util
+    
+    if imports == ['*'] or (len(imports) == 1 and imports[0] == '*'):
+        try:
+            spec = importlib.util.spec_from_file_location("temp_module", file_path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Could not load {file_path}")
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            imports = [name for name in dir(module) 
+                      if not name.startswith('_') 
+                      and callable(getattr(module, name))]
+            
+            print(f"Found: {', '.join(imports)}")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+            return
+    
     registry = get_registry()
     registry.register_user_defined(alias, file_path, imports, persist=False, inject_directly=inject_directly)
     
@@ -250,11 +270,30 @@ def add_user_defined(alias: str, file_path: str, imports: List[str], inject_dire
 
 
 def save_user_defined(alias: str, file_path: str, imports: List[str], inject_directly: bool = False):
+    import importlib.util
+    
+    if imports == ['*'] or (len(imports) == 1 and imports[0] == '*'):
+        try:
+            spec = importlib.util.spec_from_file_location("temp_module", file_path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"Could not load {file_path}")
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            imports = [name for name in dir(module) 
+                      if not name.startswith('_') 
+                      and callable(getattr(module, name))]
+            
+            print(f"Found: {', '.join(imports)}")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+            return
+    
     registry = get_registry()
     registry.register_user_defined(alias, file_path, imports, persist=True, inject_directly=inject_directly)
     add_user_defined(alias, file_path, imports, inject_directly=inject_directly)
     print(f"Saved user-defined '{alias}' permanently")
-
 
 def list_modules():
     registry = get_registry()
