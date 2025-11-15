@@ -47,7 +47,7 @@ class PostDevelopCommand(develop):
 
 setup(
     name='ghostimports',
-    version='0.1.0',
+    version='0.2.0',
     description='Lazy-loading proxy modules for Jupyter notebooks',
     author='Osama Fityani',
     author_email='osamafitiani2001@gmail.com',

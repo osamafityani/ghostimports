@@ -1,5 +1,5 @@
 .venv
 __pycache__/
 build/
-ghostmodule.egg-info/
+ghostimports.egg-info/
 *.jukit*
