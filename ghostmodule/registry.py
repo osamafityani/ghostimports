@@ -33,6 +33,9 @@ class ModuleRegistry:
     def register_user_defined(self, alias: str, file_path: str, 
                              imports: List[str], persist: bool = True,
                              inject_directly: bool = False):
+        if inject_directly:
+            alias = f"__direct__{file_path}"
+        
         self.user_defined[alias] = {
             'file_path': file_path,
             'imports': imports,
@@ -58,11 +61,25 @@ class ModuleRegistry:
     def get_user_defined(self, name: str) -> Optional[Dict]:
         return self.user_defined.get(name)
     
+    def get_user_defined_by_path(self, file_path: str) -> Optional[str]:
+        """Find user-defined entry by file path."""
+        for alias, config in self.user_defined.items():
+            if config['file_path'] == file_path:
+                return alias
+        return None
+    
     def list_available(self) -> Dict[str, List[str]]:
+        user_defined_display = []
+        for alias, config in self.user_defined.items():
+            if config.get('inject_directly', False):
+                user_defined_display.append(f"direct:{config['file_path']}")
+            else:
+                user_defined_display.append(alias)
+        
         return {
             'builtin': sorted(self.builtin_modules.keys()),
             'user_added': sorted(self.user_modules.keys()),
-            'user_defined': sorted(self.user_defined.keys())
+            'user_defined': sorted(user_defined_display)
         }
     
     def _get_config_path(self) -> Path:
@@ -108,6 +125,21 @@ class ModuleRegistry:
             self._save_user_modules()
             return True
         return False
+    
+    def remove_user_defined_by_path(self, file_path: str):
+        """Remove user-defined entry by file path."""
+        alias = self.get_user_defined_by_path(file_path)
+        if alias:
+            del self.user_defined[alias]
+            self._save_user_modules()
+            return True
+        return False
+    
+    def clear_all_user_data(self):
+        """Remove all user-added modules and user-defined imports."""
+        self.user_modules = {}
+        self.user_defined = {}
+        self._save_user_modules()
 
 _registry = ModuleRegistry()
 

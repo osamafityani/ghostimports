@@ -1,3 +1,5 @@
+"""Core GhostModule functionality with registry support."""
+
 import sys
 import importlib
 import importlib.util
@@ -83,7 +85,7 @@ class UserDefinedGhost:
                     else:
                         print(f"  '{name}' not found in {self._file_path}")
                 
-                print(f"ghostloader: imported {', '.join(self._loaded_items.keys())} from '{self._alias}'")
+                print(f"ghostloader: imported {', '.join(self._loaded_items.keys())} from '{self._file_path}'")
                 
                 try:
                     from IPython import get_ipython
@@ -99,7 +101,7 @@ class UserDefinedGhost:
                     pass
                     
             except Exception as e:
-                print(f"ghostloader: could not load user-defined module '{self._alias}' - {e}")
+                print(f"ghostloader: could not load user-defined module from '{self._file_path}' - {e}")
                 raise
         
         return self._loaded_items
@@ -119,8 +121,8 @@ class UserDefinedGhost:
     
     def __repr__(self):
         if self._module is None:
-            return f"<UserDefinedGhost '{self._alias}' (not loaded)>"
-        return f"<UserDefinedGhost '{self._alias}' with {list(self._loaded_items.keys())}>"
+            return f"<UserDefinedGhost '{self._file_path}' (not loaded)>"
+        return f"<UserDefinedGhost '{self._file_path}' with {list(self._loaded_items.keys())}>"
 
 
 def activate(custom_aliases: Optional[Dict[str, str]] = None, 
@@ -186,7 +188,7 @@ def activate(custom_aliases: Optional[Dict[str, str]] = None,
                     ghost._load()
                     loaded.extend([f"{name} (user-defined)" for name in config['imports']])
                 else:
-                    if alias not in namespace:
+                    if alias not in namespace and not alias.startswith('__direct__'):
                         namespace[alias] = UserDefinedGhost(
                             alias, 
                             config['file_path'], 
@@ -229,7 +231,7 @@ def save_module(alias: str, module_path: str):
     print(f"Saved '{alias}' -> '{module_path}' permanently")
 
 
-def add_user_defined(alias: str, file_path: str, imports: List[str], inject_directly: bool = False):
+def add_user_defined(alias: Optional[str], file_path: str, imports: List[str], inject_directly: bool = False):
     import importlib.util
     
     if imports == ['*'] or (len(imports) == 1 and imports[0] == '*'):
@@ -249,6 +251,9 @@ def add_user_defined(alias: str, file_path: str, imports: List[str], inject_dire
         except Exception as e:
             print(f"Error reading file: {e}")
             return
+    
+    if inject_directly and alias is None:
+        alias = f"__direct__{file_path}"
     
     registry = get_registry()
     registry.register_user_defined(alias, file_path, imports, persist=False, inject_directly=inject_directly)
@@ -269,7 +274,7 @@ def add_user_defined(alias: str, file_path: str, imports: List[str], inject_dire
         pass
 
 
-def save_user_defined(alias: str, file_path: str, imports: List[str], inject_directly: bool = False):
+def save_user_defined(alias: Optional[str], file_path: str, imports: List[str], inject_directly: bool = False):
     import importlib.util
     
     if imports == ['*'] or (len(imports) == 1 and imports[0] == '*'):
@@ -290,10 +295,14 @@ def save_user_defined(alias: str, file_path: str, imports: List[str], inject_dir
             print(f"Error reading file: {e}")
             return
     
+    if inject_directly and alias is None:
+        alias = f"__direct__{file_path}"
+    
     registry = get_registry()
     registry.register_user_defined(alias, file_path, imports, persist=True, inject_directly=inject_directly)
     add_user_defined(alias, file_path, imports, inject_directly=inject_directly)
-    print(f"Saved user-defined '{alias}' permanently")
+    print(f"Saved user-defined from '{file_path}' permanently")
+
 
 def list_modules():
     registry = get_registry()
@@ -313,9 +322,16 @@ def list_modules():
     
     if available['user_defined']:
         print(f"\nUser-defined ({len(available['user_defined'])} namespaces):")
-        for alias in available['user_defined']:
-            config = registry.user_defined[alias]
-            mode = "direct" if config.get('inject_directly', False) else f"via {alias}"
-            print(f"  {alias}: {', '.join(config['imports'])} [{mode}]")
+        for item in available['user_defined']:
+            if item.startswith('direct:'):
+                file_path = item[7:]
+                config = registry.get_user_defined_by_path(file_path)
+                if config:
+                    imports = registry.user_defined[config]['imports']
+                    print(f"  {file_path}: {', '.join(imports)} [direct]")
+            else:
+                config = registry.user_defined.get(item)
+                if config:
+                    print(f"  {item}: {', '.join(config['imports'])} [via {item}]")
     
     print("\nTip: Use 'ghostmodule list --detailed' for full list")
